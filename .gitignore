@@ -1,0 +1,38 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Bytecode & temp
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+
+# Config & sensitive
+.env
+.env.*
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# Data / processed
+data/processed/
+# data/raw/air_data.csv  (tuỳ chọn nếu file quá lớn)
+
+# Models / checkpoints
+models/*.pkl
+models/*.h5
+models/*.pt
+models/*.ckpt
+
+# Logs
+logs/
+*.log

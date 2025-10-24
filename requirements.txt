@@ -7,4 +7,3 @@ tensorflow
 prophet
 fastapi
 uvicorn
-openai

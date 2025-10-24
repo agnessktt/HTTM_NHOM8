@@ -1,82 +1,71 @@
-import os
-import pandas as pd
-import joblib
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_absolute_error, r2_score
+advice.append("⚠️ Bạn thuộc nhóm người cao tuổi, nên đặc biệt lưu ý khi AQI vượt 100.<br>")
+        if user_info.get("disease"):
+            disease = user_info["disease"].lower()
+            if any(x in disease for x in ["hen", "xoang", "phổi", "viêm mũi", "copd"]):
+                advice.append("🫁 Bạn có bệnh về <b>đường hô hấp</b>, nên hạn chế ra ngoài.<br>")
+            elif any(x in disease for x in ["tim", "huyết áp", "mạch", "thiếu máu"]):
+                advice.append("❤️ Bạn có bệnh về <b>tim mạch</b>, tránh vận động mạnh ngoài trời.<br>")
+            elif any(x in disease for x in ["da", "mắt"]):
+                advice.append("👁️ Bạn có bệnh về <b>da hoặc mắt</b>, nên tránh tiếp xúc lâu với không khí ô nhiễm.<br>")
 
-# Đường dẫn dữ liệu và lưu model
-DATA_PATH = "data/raw/air_data.csv"
-MODEL_PATH = "models/aqi_model.pkl"
+    advice.append("<br><em>ℹ️ Thông tin chỉ mang tính tham khảo, không thay thế chẩn đoán y tế.</em>")
 
-def train_model():
-    # Kiểm tra file dữ liệu
-    if not os.path.exists(DATA_PATH):
-        raise FileNotFoundError(f"❌ Không tìm thấy file dữ liệu tại {DATA_PATH}")
+    return f"""
+    <div style="background-color:{color}; border-radius:12px; padding:18px 22px; line-height:1.7; font-size:16px;">
+        {''.join(advice)}
+    </div>
+    """
 
-    # ---- Sơ đồ luồng ----
-    print("🟢 Bắt đầu luồng huấn luyện mô hình RandomForest")
-    print("┌───────────────┐")
-    print("│  Dữ liệu CSV  │")
-    print("└───────┬───────┘")
-    print("        ↓")
-    print("┌───────────────┐")
-    print("│  Train Model  │")
-    print("└───────┬───────┘")
-    print("        ↓")
-    print("┌───────────────┐")
-    print("│  Lưu Model    │")
-    print("└───────┬───────┘")
-    print("        ↓")
-    print("┌───────────────┐")
-    print("│  Dự đoán AQI  │")
-    print("└───────────────┘\n")
+# -----------------------------
+# Giao diện Streamlit
+st.set_page_config(page_title="AIRCARE - Dự đoán AQI & Khuyến nghị sức khỏe", page_icon="🌤️", layout="centered")
 
-    # 📖 Đọc dữ liệu
-    print(f"📖 Đang đọc dữ liệu từ {DATA_PATH} ...")
-    df = pd.read_csv(DATA_PATH)
+st.title("🌤️ Dự đoán chỉ số AQI & Khuyến nghị sức khỏe cá nhân")
 
-    print("📊 Dữ liệu hiện tại:")
-    print(df.tail())
+st.subheader("👤 Thông tin người dùng")
+col1, col2 = st.columns(2)
+with col1:
+    age = st.number_input("Tuổi", min_value=1, max_value=120, value=25)
+with col2:
+    disease = st.text_input("Bệnh lý (nếu có)", placeholder="Ví dụ: hen suyễn, xoang mũi,...")
 
-    # Các cột đặc trưng và target
-    features = ["pm2_5", "pm10", "no2", "co", "o3", "so2", "temp", "humidity"]
-    target = "aqi"
+user_info = {"age": age, "disease": disease.strip()}
 
-    X = df[features]
-    y = df[target]
+# -----------------------------
+# Lấy dữ liệu môi trường mới nhất
+if not os.path.exists(DATA_PATH):
+    st.error(f"❌ Không tìm thấy file dữ liệu tại `{DATA_PATH}`.")
+    st.stop()
 
-    # Tách dữ liệu train/test
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+df = pd.read_csv(DATA_PATH)
+if df.empty:
+    st.warning("⚠️ Dữ liệu rỗng. Hãy cập nhật dữ liệu môi trường trước.")
+    st.stop()
 
-    # 🚀 Huấn luyện mô hình
-    print("🚀 Đang huấn luyện mô hình RandomForest...")
-    model = RandomForestRegressor(n_estimators=100, random_state=42)
-    model.fit(X_train, y_train)
+latest = df.iloc[-1][["pm2_5", "pm10", "no2", "co", "o3", "so2", "temp", "humidity"]].to_dict()
 
-    # Dự đoán và đánh giá
-    y_pred = model.predict(X_test)
-    mae = mean_absolute_error(y_test, y_pred)
-    r2 = r2_score(y_test, y_pred)
+# -----------------------------
+# Dự đoán AQI
+if st.button("🚀 Dự đoán AQI"):
+    # Tạo DataFrame đầu vào
+    df_input = pd.DataFrame([latest])
 
-    # ✅ In kết quả
-    print(f"✅ MAE: {mae:.2f}")
-    print(f"✅ R²: {r2:.2f}")
+    # Đảm bảo có đủ các cột mô hình yêu cầu
+    for col in feature_names:
+        if col not in df_input.columns:
+            df_input[col] = 0  # giá trị mặc định cho các feature lag/time
 
-    # 💾 Lưu model
-    os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
-    joblib.dump(model, MODEL_PATH)
-    print(f"💾 Mô hình đã được lưu tại: {MODEL_PATH}\n")
+    # Sắp xếp đúng thứ tự cột
+    df_input = df_input[feature_names]
 
-    # ---- Dự đoán thử 1 mẫu ----
-    sample_input = {"pm2_5": 35, "pm10": 50, "no2": 20, "co": 0.7,
-                    "o3": 10, "so2": 5, "temp": 28, "humidity": 65}
-    sample_df = pd.DataFrame([sample_input])
-    sample_pred = model.predict(sample_df)
-    print(f"📊 Dự đoán AQI cho mẫu thử: {sample_pred[0]:.2f}")
+    # Dự đoán
+    try:
+        aqi_pred = model.predict(df_input)[0]
+        alert_html = generate_health_alert(aqi_pred, user_info)
+        st.markdown(alert_html, unsafe_allow_html=True)
 
-    return model, mae, r2
+        with st.expander("📋 Xem dữ liệu môi trường gần nhất"):
+            st.dataframe(df.tail(5))
 
-# Khi chạy trực tiếp
-if __name__ == "__main__":
-    train_model()
+    except Exception as e:
+        st.error(f"⚠️ Lỗi khi dự đoán: {e}")

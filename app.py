@@ -1,79 +1,228 @@
-import streamlit as st
-import pandas as pd
-import matplotlib.pyplot as plt
 import os
-from src.model.train_model import train_aqi_model
+import joblib
+import pandas as pd
+import numpy as np
+import streamlit as st
+import altair as alt
+from datetime import timedelta
 
-st.set_page_config(page_title="AirCare AQI Monitor", layout="wide")
+# ==============================
+# CONFIG PATHS
+# ==============================
+DATA_PATH = "data/raw/air_data.csv"
+MODEL_DIR = "models"
+MODEL_FILES = {
+    1: f"{MODEL_DIR}/aqi_model_1h.pkl",
+    3: f"{MODEL_DIR}/aqi_model_3h.pkl",
+    6: f"{MODEL_DIR}/aqi_model_6h.pkl",
+}
+FEATURE_FILES = {
+    1: f"{MODEL_DIR}/feature_names_1h.pkl",
+    3: f"{MODEL_DIR}/feature_names_3h.pkl",
+    6: f"{MODEL_DIR}/feature_names_6h.pkl",
+}
 
-st.title("🌤️ AirCare — Air Quality Index (AQI) Monitoring Dashboard")
-st.markdown("Theo dõi và dự đoán chất lượng không khí tại **Hà Nội** theo thời gian thực.")
-
-# --- Nút load dữ liệu ---
-data_path = "data/raw/air_data.csv"
-
-if st.button("🔄 Làm mới dữ liệu"):
-    if os.path.exists(data_path):
-        data = pd.read_csv(data_path)
-        st.success("✅ Dữ liệu mới nhất đã được tải lại!")
+# ==============================
+# HELPER FUNCTIONS
+# ==============================
+def health_card_html(aqi):
+    """Trả về HTML cảnh báo màu tương ứng mức AQI"""
+    if aqi <= 50:
+        level, color, msg = "Tốt", "#C8E6C9", "Không khí trong lành — rất tốt cho sức khỏe."
+    elif aqi <= 100:
+        level, color, msg = "Trung bình", "#FFF9C4", "Chất lượng tạm ổn; người nhạy cảm chú ý."
+    elif aqi <= 150:
+        level, color, msg = "Kém", "#FFE0B2", "Không tốt cho người nhạy cảm; nên hạn chế ra ngoài."
+    elif aqi <= 200:
+        level, color, msg = "Xấu", "#FFCDD2", "Ô nhiễm; tránh ra ngoài và hoạt động mạnh."
+    elif aqi <= 300:
+        level, color, msg = "Rất xấu", "#E1BEE7", "Rất ô nhiễm; hạn chế tối đa ra ngoài."
     else:
-        st.error("❌ Không tìm thấy file dữ liệu!")
-else:
-    # Lần đầu load
-    if os.path.exists(data_path):
-        data = pd.read_csv(data_path)
-    else:
-        st.error("❌ Không tìm thấy file dữ liệu!")
+        level, color, msg = "Nguy hại", "#B39DDB", "Nguy hiểm — không ra ngoài nếu không cần thiết."
+
+    return f"""
+    <div style="background:{color}; padding:14px; border-radius:10px; margin-bottom:6px;">
+      <h4 style="margin:4px 0;">AQI: <b>{aqi:.0f}</b> — {level}</h4>
+      <p style="font-size:13px;margin:0;">{msg}</p>
+    </div>
+    """
+
+def build_input_df_from_latest(latest_row, feature_list):
+    base = {k: float(latest_row.get(k, 0)) for k in ["pm2_5","pm10","no2","co","o3","so2","temp","humidity"]}
+    ts = pd.to_datetime(latest_row["timestamp"])
+    base.update({
+        "hour": ts.hour,
+        "weekday": ts.weekday(),
+        "month": ts.month,
+        "hour_sin": np.sin(2*np.pi*ts.hour/24),
+        "hour_cos": np.cos(2*np.pi*ts.hour/24)
+    })
+    df_in = pd.DataFrame([base])
+    for f in feature_list:
+        if f not in df_in.columns:
+            df_in[f] = 0.0
+    return df_in[feature_list]
+
+def predict_multi_horizon(df_all, models, feature_names):
+    latest = df_all.iloc[-1]
+    preds, chart_rows = {}, []
+    recent = df_all.tail(24)[["timestamp", "aqi"]].copy()
+    recent["type"] = "actual"
+    chart_rows.extend(recent.to_dict(orient="records"))
+
+    for h, model in models.items():
+        feats = feature_names[h]
+        df_input = build_input_df_from_latest(latest, feats)
+        for col in feats:
+            if col.startswith("aqi_lag"):
+                try:
+                    lag_n = int(col.split("aqi_lag")[-1])
+df_input[col] = float(df_all["aqi"].shift(lag_n).iloc[-1])
+                except Exception:
+                    df_input[col] = 0.0
+
+        pred = max(0.0, model.predict(df_input)[0])
+        preds[h] = pred
+        chart_rows.append({
+            "timestamp": pd.to_datetime(latest["timestamp"]) + timedelta(hours=h),
+            "aqi": pred,
+            "type": f"pred_{h}h"
+        })
+
+    chart_df = pd.DataFrame(chart_rows).sort_values("timestamp")
+    return {"preds": preds, "chart_df": chart_df}
+
+# ==============================
+# LOAD MODELS & DATA
+# ==============================
+models, feature_names = {}, {}
+for h in [1, 3, 6]:
+    if not (os.path.exists(MODEL_FILES[h]) and os.path.exists(FEATURE_FILES[h])):
+        st.error(f"❌ Thiếu mô hình {h}h — hãy chạy train_model.py trước.")
         st.stop()
+    models[h], feature_names[h] = joblib.load(MODEL_FILES[h]), joblib.load(FEATURE_FILES[h])
 
-if not data.empty:
-    data["timestamp"] = pd.to_datetime(data["timestamp"])
-    data = data.sort_values("timestamp")
+if not os.path.exists(DATA_PATH):
+    st.error("❌ Không tìm thấy file dữ liệu!")
+    st.stop()
 
-    # --- Hiển thị dữ liệu mới nhất ---
-    st.subheader("📊 Dữ liệu mới nhất từ cảm biến / API")
-    st.dataframe(data.tail(5))
+df = pd.read_csv(DATA_PATH, parse_dates=["timestamp"]).drop_duplicates("timestamp").sort_values("timestamp")
+if df.empty:
+    st.warning("⚠️ Dữ liệu rỗng. Hãy kiểm tra lại.")
+    st.stop()
 
-    # --- Biểu đồ AQI theo thời gian ---
-    st.subheader("📈 Biểu đồ AQI theo thời gian")
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(data["timestamp"], data["aqi"], marker='o', linestyle='-', color='skyblue', label="AQI thực tế")
-    ax.set_xlabel("Thời gian")
-    ax.set_ylabel("Chỉ số AQI")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    st.pyplot(fig)
+# ==============================
+# UI SETUP
+# ==============================
+st.set_page_config(page_title="AIRCARE Chatbot AQI", page_icon="🌤️", layout="wide")
+st.markdown("<style> .stApp { background-color: #f8fafc; } </style>", unsafe_allow_html=True)
 
-    # --- Huấn luyện mô hình ---
-    st.markdown("---")
-    st.subheader("🤖 Huấn luyện mô hình dự đoán AQI")
-
-    if st.button("🚀 Bắt đầu huấn luyện"):
-        with st.spinner("Đang huấn luyện mô hình, vui lòng đợi... ⏳"):
-            model, metrics = train_aqi_model()
-        st.success("✅ Huấn luyện hoàn tất!")
-
-        st.markdown("### 🔍 Kết quả mô hình")
-        st.json(metrics)
-
-        # --- Dự đoán ---
-        feature_cols = ['pm2_5', 'pm10', 'no2', 'co', 'o3', 'so2', 'temp', 'humidity']
-        predictions = model.predict(data[feature_cols])
-        data['Predicted_AQI'] = predictions
-
-        # --- Biểu đồ so sánh ---
-        st.markdown("### 🔮 Biểu đồ so sánh AQI thực tế và dự đoán")
-        fig2, ax2 = plt.subplots(figsize=(10, 4))
-        ax2.plot(data["timestamp"], data["aqi"], marker='o', color='blue', label='Thực tế')
-        ax2.plot(data["timestamp"], data["Predicted_AQI"], marker='x', color='orange', label='Dự đoán')
-        ax2.set_xlabel("Thời gian")
-        ax2.set_ylabel("AQI")
-        ax2.legend()
-        ax2.grid(True, alpha=0.3)
-        st.pyplot(fig2)
-
-else:
-    st.error("❌ Không có dữ liệu trong file CSV.")
-
+col1, col2 = st.columns([7, 3])
+with col1:
+    st.title("🌤️ AIRCARE — Chatbot Dự đoán AQI")
+    st.caption("Hỏi về chất lượng không khí hoặc dự đoán AQI trong 1h, 3h, 6h tới.")
+with col2:
+    st.image("https://img.icons8.com/fluency/96/air-quality.png", width=90)
 st.markdown("---")
-st.caption("© 2025 — AirCare")
+
+# Sidebar
+with st.sidebar:
+    st.header("👤 Thông tin người dùng")
+    age = st.number_input("Tuổi", 1, 120, 25)
+    disease = st.text_input("Bệnh lý (nếu có)", placeholder="VD: hen suyễn, tim mạch...")
+    if st.button("🚀 Dự đoán nhanh"):
+        out = predict_multi_horizon(df, models, feature_names)
+        st.session_state["last_prediction"] = out
+
+# Khởi tạo session state
+if "chat" not in st.session_state:
+    st.session_state["chat"] = []
+
+# ==============================
+# MAIN LAYOUT
+# ==============================
+left, right = st.columns([3, 2])
+
+# --- CHATBOT ---
+with left:
+    st.subheader("💬 Chatbot")
+    for msg in st.session_state["chat"]:
+        align = "right" if msg["role"] == "user" else "left"
+        color = "#0b5cff" if msg["role"] == "user" else "#111"
+        bg = "#dbeafe" if msg["role"] == "user" else "#f1f5f9"
+        st.markdown(f"""
+            <div style="text-align:{align}; background:{bg};
+            padding:8px; border-radius:8px; margin-bottom:6px; color:{color}">
+<b>{'Bạn' if msg['role']=='user' else 'Bot'}:</b> {msg['text']}
+            </div>
+        """, unsafe_allow_html=True)
+
+    def handle_message():
+        user_text = st.session_state.input_text.strip()
+        if not user_text:
+            return
+        st.session_state.chat.append({"role": "user", "text": user_text})
+        q = user_text.lower()
+
+        # 1️⃣ Dự đoán AQI
+        if any(k in q for k in ["dự đoán", "aqi", "predict"]):
+            out = predict_multi_horizon(df, models, feature_names)
+            st.session_state["last_prediction"] = out
+            preds_text = ", ".join([f"+{h}h: {v:.0f}" for h, v in out["preds"].items()])
+            bot_text = f"🤖 Dự báo AQI: {preds_text}"
+            st.session_state.chat.append({"role": "bot", "text": bot_text})
+
+        # 2️⃣ Hỏi về sức khỏe
+        elif any(k in q for k in ["ra đường", "khẩu trang", "sức khỏe"]):
+            st.session_state.chat.append({
+                "role": "bot",
+                "text": "😷 Nên đeo khẩu trang N95, tránh ra đường vào giờ cao điểm ô nhiễm.\n"
+                        "Bạn có thể hỏi: 'Dự đoán AQI' hoặc 'Cảnh báo hôm nay'."
+            })
+
+        # 3️⃣ Hỏi biểu đồ
+        elif "biểu đồ" in q:
+            st.session_state.chat.append({
+                "role": "bot",
+                "text": "📈 Biểu đồ AQI được hiển thị bên phải, theo thời gian thực."
+            })
+
+        # 4️⃣ Hỏi cảnh báo
+        elif "cảnh báo" in q or "thông báo" in q:
+            st.session_state.chat.append({
+                "role": "bot",
+                "text": "🚨 AQI >150: hạn chế ra ngoài.\n🚨 AQI >200: nên ở trong nhà."
+            })
+
+        else:
+            st.session_state.chat.append({
+                "role": "bot",
+                "text": "🤔 Mình chưa hiểu rõ ý bạn. Bạn có thể hỏi:\n"
+                        "- 'Dự đoán AQI'\n- 'Biểu đồ AQI'\n- 'Cảnh báo hôm nay'"
+            })
+        # Xóa nội dung đã nhập
+        st.session_state.input_text = ""
+
+    st.text_input("Nhập tin nhắn...", key="input_text", on_change=handle_message)
+
+# --- BIỂU ĐỒ & CẢNH BÁO ---
+with right:
+    st.subheader("📊 Dự đoán & Cảnh báo")
+    latest = df.iloc[-1]
+    st.write(f"⏰ {latest['timestamp']} — AQI hiện tại: {latest['aqi']:.0f}")
+
+    if "last_prediction" in st.session_state:
+        out = st.session_state["last_prediction"]
+        for h, aqi in out["preds"].items():
+            st.markdown(health_card_html(aqi), unsafe_allow_html=True)
+
+        chart_df = out["chart_df"]
+        chart = (
+            alt.Chart(chart_df)
+            .mark_line(point=True)
+            .encode(x="timestamp:T", y="aqi:Q", color="type:N")
+            .properties(height=300)
+        )
+        st.altair_chart(chart, use_container_width=True)
+    else:
+st.info("Nhấn **🚀 Dự đoán nhanh** hoặc hỏi chatbot để xem dự báo.")

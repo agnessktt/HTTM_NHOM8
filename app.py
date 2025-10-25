@@ -5,6 +5,7 @@ import numpy as np
 import streamlit as st
 import altair as alt
 from datetime import timedelta
+from sentence_transformers import SentenceTransformer, util
 
 # ==============================
 # CONFIG PATHS
@@ -39,7 +40,6 @@ def health_card_html(aqi):
         level, color, msg = "Rất xấu", "#E1BEE7", "Rất ô nhiễm; hạn chế tối đa ra ngoài."
     else:
         level, color, msg = "Nguy hại", "#B39DDB", "Nguy hiểm — không ra ngoài nếu không cần thiết."
-
     return f"""
     <div style="background:{color}; padding:14px; border-radius:10px; margin-bottom:6px;">
       <h4 style="margin:4px 0;">AQI: <b>{aqi:.0f}</b> — {level}</h4>
@@ -77,7 +77,7 @@ def predict_multi_horizon(df_all, models, feature_names):
             if col.startswith("aqi_lag"):
                 try:
                     lag_n = int(col.split("aqi_lag")[-1])
-df_input[col] = float(df_all["aqi"].shift(lag_n).iloc[-1])
+                    df_input[col] = float(df_all["aqi"].shift(lag_n).iloc[-1])
                 except Exception:
                     df_input[col] = 0.0
 
@@ -110,6 +110,32 @@ df = pd.read_csv(DATA_PATH, parse_dates=["timestamp"]).drop_duplicates("timestam
 if df.empty:
     st.warning("⚠️ Dữ liệu rỗng. Hãy kiểm tra lại.")
     st.stop()
+
+# ==============================
+# SEMANTIC MODEL (HIỂU NGỮ NGHĨA)
+# ==============================
+@st.cache_resource
+def load_semantic_model():
+    return SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+
+semantic_model = load_semantic_model()
+
+INTENTS = {
+    "predict": ["dự đoán aqi", "dự báo aqi", "chất lượng không khí tương lai", "không khí vài giờ tới", "air quality forecast"],
+    "chart": ["xem biểu đồ", "đồ thị aqi", "graph", "chart", "thống kê không khí"],
+    "warning": ["cảnh báo", "ra đường có an toàn không", "khẩu trang", "sức khỏe", "nên ra ngoài không", "nguy hiểm không"],
+    "greet": ["chào", "xin chào", "hi", "hello", "bạn là ai", "chào buổi sáng"],
+}
+
+def detect_intent(user_text):
+    user_emb = semantic_model.encode(user_text, convert_to_tensor=True)
+    best_intent, best_score = "unknown", 0.0
+    for intent, examples in INTENTS.items():
+        intent_emb = semantic_model.encode(examples, convert_to_tensor=True)
+        sim = util.cos_sim(user_emb, intent_emb).max().item()
+        if sim > best_score:
+            best_score, best_intent = sim, intent
+    return best_intent if best_score > 0.55 else "unknown"
 
 # ==============================
 # UI SETUP
@@ -153,7 +179,7 @@ with left:
         st.markdown(f"""
             <div style="text-align:{align}; background:{bg};
             padding:8px; border-radius:8px; margin-bottom:6px; color:{color}">
-<b>{'Bạn' if msg['role']=='user' else 'Bot'}:</b> {msg['text']}
+            <b>{'Bạn' if msg['role']=='user' else 'Bot'}:</b> {msg['text']}
             </div>
         """, unsafe_allow_html=True)
 
@@ -162,45 +188,36 @@ with left:
         if not user_text:
             return
         st.session_state.chat.append({"role": "user", "text": user_text})
-        q = user_text.lower()
 
-        # 1️⃣ Dự đoán AQI
-        if any(k in q for k in ["dự đoán", "aqi", "predict"]):
+        intent = detect_intent(user_text.lower())
+
+        if intent == "predict":
             out = predict_multi_horizon(df, models, feature_names)
             st.session_state["last_prediction"] = out
             preds_text = ", ".join([f"+{h}h: {v:.0f}" for h, v in out["preds"].items()])
-            bot_text = f"🤖 Dự báo AQI: {preds_text}"
-            st.session_state.chat.append({"role": "bot", "text": bot_text})
+            st.session_state.chat.append({"role": "bot", "text": f"🤖 Dự báo AQI: {preds_text}"})
 
-        # 2️⃣ Hỏi về sức khỏe
-        elif any(k in q for k in ["ra đường", "khẩu trang", "sức khỏe"]):
-            st.session_state.chat.append({
-                "role": "bot",
-                "text": "😷 Nên đeo khẩu trang N95, tránh ra đường vào giờ cao điểm ô nhiễm.\n"
-                        "Bạn có thể hỏi: 'Dự đoán AQI' hoặc 'Cảnh báo hôm nay'."
-            })
+        elif intent == "chart":
+            st.session_state.chat.append({"role": "bot", "text": "📊 Biểu đồ AQI hiển thị bên phải nhé!"})
 
-        # 3️⃣ Hỏi biểu đồ
-        elif "biểu đồ" in q:
-            st.session_state.chat.append({
-                "role": "bot",
-                "text": "📈 Biểu đồ AQI được hiển thị bên phải, theo thời gian thực."
-            })
+        elif intent == "warning":
+            latest = df.iloc[-1]["aqi"]
+            if latest > 150:
+                msg = "⚠️ Không khí ô nhiễm, hạn chế ra ngoài. "
+            elif latest > 100:
+                msg = "😷 Không khí trung bình, người nhạy cảm nên đeo khẩu trang. "
+            else:
+                msg = "✅ Không khí trong lành, bạn có thể ra ngoài thoải mái. "
+            if disease:
+                msg += f"Vì bạn có bệnh '{disease}', nên chú ý hơn khi AQI >100."
+            st.session_state.chat.append({"role": "bot", "text": msg})
 
-        # 4️⃣ Hỏi cảnh báo
-        elif "cảnh báo" in q or "thông báo" in q:
-            st.session_state.chat.append({
-                "role": "bot",
-                "text": "🚨 AQI >150: hạn chế ra ngoài.\n🚨 AQI >200: nên ở trong nhà."
-            })
+        elif intent == "greet":
+            st.session_state.chat.append({"role": "bot", "text": "Chào bạn 👋! Tôi là AirCare Chatbot, sẵn sàng giúp bạn theo dõi chất lượng không khí 🌤️."})
 
         else:
-            st.session_state.chat.append({
-                "role": "bot",
-                "text": "🤔 Mình chưa hiểu rõ ý bạn. Bạn có thể hỏi:\n"
-                        "- 'Dự đoán AQI'\n- 'Biểu đồ AQI'\n- 'Cảnh báo hôm nay'"
-            })
-        # Xóa nội dung đã nhập
+            st.session_state.chat.append({"role": "bot", "text": "🤔 Mình chưa hiểu rõ ý bạn. Hãy thử hỏi: 'Dự đoán AQI', 'Biểu đồ AQI' hoặc 'Cảnh báo'."})
+
         st.session_state.input_text = ""
 
     st.text_input("Nhập tin nhắn...", key="input_text", on_change=handle_message)
@@ -225,4 +242,4 @@ with right:
         )
         st.altair_chart(chart, use_container_width=True)
     else:
-st.info("Nhấn **🚀 Dự đoán nhanh** hoặc hỏi chatbot để xem dự báo.")
+        st.info("Nhấn **🚀 Dự đoán nhanh** hoặc hỏi chatbot để xem dự báo.")

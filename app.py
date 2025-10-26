@@ -7,9 +7,9 @@ import altair as alt
 from datetime import timedelta
 from sentence_transformers import SentenceTransformer, util
 
-# ==============================
+# =============================
 # CONFIG PATHS
-# ==============================
+# =============================
 DATA_PATH = "data/raw/air_data.csv"
 MODEL_DIR = "models"
 MODEL_FILES = {
@@ -23,9 +23,9 @@ FEATURE_FILES = {
     6: f"{MODEL_DIR}/feature_names_6h.pkl",
 }
 
-# ==============================
+# =============================
 # HELPER FUNCTIONS
-# ==============================
+# =============================
 def health_card_html(aqi):
     """Trả về HTML cảnh báo màu tương ứng mức AQI"""
     if aqi <= 50:
@@ -92,9 +92,9 @@ def predict_multi_horizon(df_all, models, feature_names):
     chart_df = pd.DataFrame(chart_rows).sort_values("timestamp")
     return {"preds": preds, "chart_df": chart_df}
 
-# ==============================
+# =============================
 # LOAD MODELS & DATA
-# ==============================
+# =============================
 models, feature_names = {}, {}
 for h in [1, 3, 6]:
     if not (os.path.exists(MODEL_FILES[h]) and os.path.exists(FEATURE_FILES[h])):
@@ -111,9 +111,9 @@ if df.empty:
     st.warning("⚠️ Dữ liệu rỗng. Hãy kiểm tra lại.")
     st.stop()
 
-# ==============================
+# =============================
 # SEMANTIC MODEL (HIỂU NGỮ NGHĨA)
-# ==============================
+# =============================
 @st.cache_resource
 def load_semantic_model():
     return SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
@@ -137,9 +137,9 @@ def detect_intent(user_text):
             best_score, best_intent = sim, intent
     return best_intent if best_score > 0.55 else "unknown"
 
-# ==============================
+# =============================
 # UI SETUP
-# ==============================
+# =============================
 st.set_page_config(page_title="AIRCARE Chatbot AQI", page_icon="🌤️", layout="wide")
 st.markdown("<style> .stApp { background-color: #f8fafc; } </style>", unsafe_allow_html=True)
 
@@ -155,7 +155,7 @@ st.markdown("---")
 with st.sidebar:
     st.header("👤 Thông tin người dùng")
     age = st.number_input("Tuổi", 1, 120, 25)
-    disease = st.text_input("Bệnh lý (nếu có)", placeholder="VD: hen suyễn, tim mạch...")
+    disease = st.text_input("Bệnh lý(nếu có)", placeholder="VD: hen suyễn, viêm xoang, tim mạch...")
     if st.button("🚀 Dự đoán nhanh"):
         out = predict_multi_horizon(df, models, feature_names)
         st.session_state["last_prediction"] = out
@@ -164,9 +164,9 @@ with st.sidebar:
 if "chat" not in st.session_state:
     st.session_state["chat"] = []
 
-# ==============================
+# =============================
 # MAIN LAYOUT
-# ==============================
+# =============================
 left, right = st.columns([3, 2])
 
 # --- CHATBOT ---
@@ -213,7 +213,7 @@ with left:
             st.session_state.chat.append({"role": "bot", "text": msg})
 
         elif intent == "greet":
-            st.session_state.chat.append({"role": "bot", "text": "Chào bạn 👋! Tôi là AirCare Chatbot, sẵn sàng giúp bạn theo dõi chất lượng không khí 🌤️."})
+            st.session_state.chat.append({"role": "bot", "text": "Chào👋! Tôi là AirCare Chatbot, sẵn sàng giúp bạn theo dõi chất lượng không khí 🌤️."})
 
         else:
             st.session_state.chat.append({"role": "bot", "text": "🤔 Mình chưa hiểu rõ ý bạn. Hãy thử hỏi: 'Dự đoán AQI', 'Biểu đồ AQI' hoặc 'Cảnh báo'."})

@@ -46,7 +46,6 @@ def generate_health_alert(aqi: float, user_info: dict = None) -> str:
     alert_text = response.choices[0].message.content
     return alert_text
 
-# -----------------------------
 # Input schema
 class AQIInput(BaseModel):
     # Dữ liệu môi trường
@@ -62,7 +61,6 @@ class AQIInput(BaseModel):
     age: int = None
     disease: str = None
 
-# -----------------------------
 # Endpoint POST /predict_with_alert
 @app.post("/predict_with_alert")
 def predict_with_alert(payload: AQIInput):
@@ -96,7 +94,6 @@ def predict_with_alert(payload: AQIInput):
         "health_alert": alert
     }
 
-# -----------------------------
 # Endpoint GET / để test server
 @app.get("/")
 def root():

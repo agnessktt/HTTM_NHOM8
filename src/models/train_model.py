@@ -7,14 +7,14 @@ from sklearn.metrics import mean_absolute_error, r2_score
 import joblib
 
 # ============================================================
-# ⚙️ CẤU HÌNH
+#  CẤU HÌNH
 # ============================================================
 DATA_PATH = "data/raw/air_data.csv"
 MODEL_DIR = "models"
 HORIZONS = [1, 3, 6]  # Dự báo 1h, 3h, 6h tới
 
 # ============================================================
-# 📥 1. NẠP DỮ LIỆU
+#  1. NẠP DỮ LIỆU
 # ============================================================
 if not os.path.exists(DATA_PATH):
     raise FileNotFoundError(f"❌ Không tìm thấy file dữ liệu tại {DATA_PATH}")
@@ -26,7 +26,7 @@ data = data.dropna(subset=["aqi"])
 print(f"✅ Nạp dữ liệu: {len(data)} dòng, {data['timestamp'].min()} → {data['timestamp'].max()}")
 
 # ============================================================
-# 🧩 2. FEATURE ENGINEERING
+#  2. FEATURE ENGINEERING
 # ============================================================
 for col in ["pm2_5", "pm10", "co", "no2", "o3", "so2", "aqi"]:
     for lag in range(1, 4):  # tạo độ trễ 1–3 giờ
@@ -40,7 +40,7 @@ data["hour_sin"] = np.sin(2 * np.pi * data["hour"] / 24)
 data["hour_cos"] = np.cos(2 * np.pi * data["hour"] / 24)
 
 # ============================================================
-# 🧠 3. HÀM HUẤN LUYỆN CHUNG
+#  3. HÀM HUẤN LUYỆN CHUNG
 # ============================================================
 def train_for_horizon(horizon: int):
     df = data.copy()
@@ -90,13 +90,13 @@ model_path = os.path.join(MODEL_DIR, f"aqi_model_{horizon}h.pkl")
     return {"horizon": horizon, "mae": mae, "r2": r2}
 
 # ============================================================
-# 🚀 4. HUẤN LUYỆN CẢ 3 MÔ HÌNH
+#  4. HUẤN LUYỆN CẢ 3 MÔ HÌNH
 # ============================================================
 print("\n🚀 Bắt đầu huấn luyện mô hình dự báo AQI (1h, 3h, 6h)...\n")
 results = [train_for_horizon(h) for h in HORIZONS]
 
 # ============================================================
-# 📊 5. TỔNG KẾT
+#  5. TỔNG KẾT
 # ============================================================
 print("\n" + "=" * 60)
 print("📈 HIỆU SUẤT CÁC MÔ HÌNH DỰ BÁO AQI")

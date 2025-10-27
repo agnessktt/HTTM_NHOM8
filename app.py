@@ -1,45 +1,43 @@
+# ==================================================
+# 🌤️ AIRCARE PRO — CHATBOT DỰ ĐOÁN AQI NÂNG CẤP
+# ==================================================
 import os
 import joblib
 import pandas as pd
 import numpy as np
 import streamlit as st
 import altair as alt
-from datetime import timedelta
+from datetime import timedelta, datetime
 from sentence_transformers import SentenceTransformer, util
 
-# =============================
-# CONFIG PATHS
-# =============================
+# ==============================
+# CẤU HÌNH
+# ==============================
 DATA_PATH = "data/raw/air_data.csv"
 MODEL_DIR = "models"
-MODEL_FILES = {
-    1: f"{MODEL_DIR}/aqi_model_1h.pkl",
-    3: f"{MODEL_DIR}/aqi_model_3h.pkl",
-    6: f"{MODEL_DIR}/aqi_model_6h.pkl",
-}
-FEATURE_FILES = {
-    1: f"{MODEL_DIR}/feature_names_1h.pkl",
-    3: f"{MODEL_DIR}/feature_names_3h.pkl",
-    6: f"{MODEL_DIR}/feature_names_6h.pkl",
-}
+MODEL_FILES = {h: f"{MODEL_DIR}/aqi_model_{h}h.pkl" for h in [1,3,6]}
+FEATURE_FILES = {h: f"{MODEL_DIR}/feature_names_{h}h.pkl" for h in [1,3,6]}
+LOG_PATH = "data/logs/user_interactions.csv"
+REFRESH_INTERVAL = 10  # phút
 
-# =============================
-# HELPER FUNCTIONS
-# =============================
+# ==============================
+# TIỆN ÍCH
+# ==============================
 def health_card_html(aqi):
-    """Trả về HTML cảnh báo màu tương ứng mức AQI"""
-    if aqi <= 50:
-        level, color, msg = "Tốt", "#C8E6C9", "Không khí trong lành — rất tốt cho sức khỏe."
-    elif aqi <= 100:
-        level, color, msg = "Trung bình", "#FFF9C4", "Chất lượng tạm ổn; người nhạy cảm chú ý."
-    elif aqi <= 150:
-        level, color, msg = "Kém", "#FFE0B2", "Không tốt cho người nhạy cảm; nên hạn chế ra ngoài."
-    elif aqi <= 200:
-        level, color, msg = "Xấu", "#FFCDD2", "Ô nhiễm; tránh ra ngoài và hoạt động mạnh."
-    elif aqi <= 300:
-        level, color, msg = "Rất xấu", "#E1BEE7", "Rất ô nhiễm; hạn chế tối đa ra ngoài."
+    """Cảnh báo màu theo mức AQI"""
+    levels = [
+        (50, "Tốt", "#C8E6C9", "Không khí trong lành — rất tốt cho sức khỏe."),
+        (100, "Trung bình", "#FFF9C4", "Chất lượng tạm ổn; người nhạy cảm chú ý."),
+        (150, "Kém", "#FFE0B2", "Không tốt cho người nhạy cảm; nên hạn chế ra ngoài."),
+        (200, "Xấu", "#FFCDD2", "Ô nhiễm; tránh ra ngoài và hoạt động mạnh."),
+        (300, "Rất xấu", "#E1BEE7", "Rất ô nhiễm; hạn chế tối đa ra ngoài."),
+    ]
+    for limit, level, color, msg in levels:
+        if aqi <= limit:
+            break
     else:
         level, color, msg = "Nguy hại", "#B39DDB", "Nguy hiểm — không ra ngoài nếu không cần thiết."
+
     return f"""
     <div style="background:{color}; padding:14px; border-radius:10px; margin-bottom:6px;">
       <h4 style="margin:4px 0;">AQI: <b>{aqi:.0f}</b> — {level}</h4>
@@ -64,6 +62,7 @@ def build_input_df_from_latest(latest_row, feature_list):
     return df_in[feature_list]
 
 def predict_multi_horizon(df_all, models, feature_names):
+    """Dự đoán AQI +1h, +3h, +6h"""
     latest = df_all.iloc[-1]
     preds, chart_rows = {}, []
     recent = df_all.tail(24)[["timestamp", "aqi"]].copy()
@@ -78,9 +77,8 @@ def predict_multi_horizon(df_all, models, feature_names):
                 try:
                     lag_n = int(col.split("aqi_lag")[-1])
                     df_input[col] = float(df_all["aqi"].shift(lag_n).iloc[-1])
-                except Exception:
+                except:
                     df_input[col] = 0.0
-
         pred = max(0.0, model.predict(df_input)[0])
         preds[h] = pred
         chart_rows.append({
@@ -92,39 +90,36 @@ def predict_multi_horizon(df_all, models, feature_names):
     chart_df = pd.DataFrame(chart_rows).sort_values("timestamp")
     return {"preds": preds, "chart_df": chart_df}
 
-# =============================
-# LOAD MODELS & DATA
-# =============================
-models, feature_names = {}, {}
-for h in [1, 3, 6]:
-    if not (os.path.exists(MODEL_FILES[h]) and os.path.exists(FEATURE_FILES[h])):
-        st.error(f"❌ Thiếu mô hình {h}h — hãy chạy train_model.py trước.")
-        st.stop()
-    models[h], feature_names[h] = joblib.load(MODEL_FILES[h]), joblib.load(FEATURE_FILES[h])
+def log_interaction(user_text, intent):
+    """Ghi log người dùng"""
+    os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
+    with open(LOG_PATH, "a", encoding="utf-8") as f:
+        f.write(f"{datetime.now()},{user_text},{intent}\n")
 
-if not os.path.exists(DATA_PATH):
-    st.error("❌ Không tìm thấy file dữ liệu!")
-    st.stop()
+# ==============================
+# LOAD MODEL
+# ==============================
+models, feature_names = {}, {}
+for h in [1,3,6]:
+    models[h] = joblib.load(MODEL_FILES[h])
+    feature_names[h] = joblib.load(FEATURE_FILES[h])
 
 df = pd.read_csv(DATA_PATH, parse_dates=["timestamp"]).drop_duplicates("timestamp").sort_values("timestamp")
-if df.empty:
-    st.warning("⚠️ Dữ liệu rỗng. Hãy kiểm tra lại.")
-    st.stop()
 
-# =============================
-# SEMANTIC MODEL (HIỂU NGỮ NGHĨA)
-# =============================
+# ==============================
+# SEMANTIC CHATBOT
+# ==============================
 @st.cache_resource
 def load_semantic_model():
     return SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
 semantic_model = load_semantic_model()
-
 INTENTS = {
-    "predict": ["dự đoán aqi", "dự báo aqi", "chất lượng không khí tương lai", "không khí vài giờ tới", "air quality forecast"],
-    "chart": ["xem biểu đồ", "đồ thị aqi", "graph", "chart", "thống kê không khí"],
-    "warning": ["cảnh báo", "ra đường có an toàn không", "khẩu trang", "sức khỏe", "nên ra ngoài không", "nguy hiểm không"],
-    "greet": ["chào", "xin chào", "hi", "hello", "bạn là ai", "chào buổi sáng"],
+    "predict": ["dự đoán aqi", "dự báo không khí", "air forecast"],
+    "chart": ["xem biểu đồ", "đồ thị aqi", "graph", "chart"],
+    "warning": ["cảnh báo", "ra ngoài có an toàn không", "khẩu trang", "sức khỏe"],
+    "weather": ["nhiệt độ", "độ ẩm", "thời tiết"],
+    "greet": ["chào", "hi", "hello"],
 }
 
 def detect_intent(user_text):
@@ -137,109 +132,100 @@ def detect_intent(user_text):
             best_score, best_intent = sim, intent
     return best_intent if best_score > 0.55 else "unknown"
 
-# =============================
-# UI SETUP
-# =============================
-st.set_page_config(page_title="AIRCARE Chatbot AQI", page_icon="🌤️", layout="wide")
-st.markdown("<style> .stApp { background-color: #f8fafc; } </style>", unsafe_allow_html=True)
+# ==============================
+# GIAO DIỆN STREAMLIT
+# ==============================
+st.set_page_config(page_title="AIRCARE PRO", page_icon="🌤️", layout="wide")
 
-col1, col2 = st.columns([7, 3])
+col1, col2 = st.columns([7,3])
 with col1:
-    st.title("🌤️ AIRCARE — Chatbot Dự đoán AQI")
-    st.caption("Hỏi về chất lượng không khí hoặc dự đoán AQI trong 1h, 3h, 6h tới.")
+    st.title("🌤️ AIRCARE PRO — Chatbot Dự đoán AQI")
+    st.caption("Dự báo AQI, phân tích rủi ro sức khỏe và xem biểu đồ chất lượng không khí.")
 with col2:
     st.image("https://img.icons8.com/fluency/96/air-quality.png", width=90)
-st.markdown("---")
 
 # Sidebar
 with st.sidebar:
     st.header("👤 Thông tin người dùng")
     age = st.number_input("Tuổi", 1, 120, 25)
-    disease = st.text_input("Bệnh lý(nếu có)", placeholder="VD: hen suyễn, viêm xoang, tim mạch...")
+    disease = st.text_input("Bệnh lý (nếu có)", placeholder="VD: hen suyễn, tim mạch...")
+    refresh = st.checkbox("Tự động làm mới dữ liệu mỗi 10 phút", True)
     if st.button("🚀 Dự đoán nhanh"):
+        st.session_state["last_prediction"] = predict_multi_horizon(df, models, feature_names)
+
+# ==============================
+# CHATBOT
+# ==============================
+if "chat" not in st.session_state: st.session_state["chat"] = []
+
+def handle_message():
+    user_text = st.session_state.input_text.strip()
+    if not user_text: return
+    st.session_state.chat.append({"role": "user", "text": user_text})
+
+    intent = detect_intent(user_text.lower())
+    log_interaction(user_text, intent)
+
+    if intent == "predict":
         out = predict_multi_horizon(df, models, feature_names)
         st.session_state["last_prediction"] = out
-
-# Khởi tạo session state
-if "chat" not in st.session_state:
-    st.session_state["chat"] = []
-
-# =============================
-# MAIN LAYOUT
-# =============================
-left, right = st.columns([3, 2])
-
-# --- CHATBOT ---
-with left:
-    st.subheader("💬 Chatbot")
-    for msg in st.session_state["chat"]:
-        align = "right" if msg["role"] == "user" else "left"
-        color = "#0b5cff" if msg["role"] == "user" else "#111"
-        bg = "#dbeafe" if msg["role"] == "user" else "#f1f5f9"
-        st.markdown(f"""
-            <div style="text-align:{align}; background:{bg};
-            padding:8px; border-radius:8px; margin-bottom:6px; color:{color}">
-            <b>{'Bạn' if msg['role']=='user' else 'Bot'}:</b> {msg['text']}
-            </div>
-        """, unsafe_allow_html=True)
-
-    def handle_message():
-        user_text = st.session_state.input_text.strip()
-        if not user_text:
-            return
-        st.session_state.chat.append({"role": "user", "text": user_text})
-
-        intent = detect_intent(user_text.lower())
-
-        if intent == "predict":
-            out = predict_multi_horizon(df, models, feature_names)
-            st.session_state["last_prediction"] = out
-            preds_text = ", ".join([f"+{h}h: {v:.0f}" for h, v in out["preds"].items()])
-            st.session_state.chat.append({"role": "bot", "text": f"🤖 Dự báo AQI: {preds_text}"})
-
-        elif intent == "chart":
-            st.session_state.chat.append({"role": "bot", "text": "📊 Biểu đồ AQI hiển thị bên phải nhé!"})
-
-        elif intent == "warning":
-            latest = df.iloc[-1]["aqi"]
-            if latest > 150:
-                msg = "⚠️ Không khí ô nhiễm, hạn chế ra ngoài. "
-            elif latest > 100:
-                msg = "😷 Không khí trung bình, người nhạy cảm nên đeo khẩu trang. "
-            else:
-                msg = "✅ Không khí trong lành, bạn có thể ra ngoài thoải mái. "
-            if disease:
-                msg += f"Vì bạn có bệnh '{disease}', nên chú ý hơn khi AQI >100."
-            st.session_state.chat.append({"role": "bot", "text": msg})
-
-        elif intent == "greet":
-            st.session_state.chat.append({"role": "bot", "text": "Chào👋! Tôi là AirCare Chatbot, sẵn sàng giúp bạn theo dõi chất lượng không khí 🌤️."})
-
+        preds = ", ".join([f"+{h}h: {v:.0f}" for h,v in out["preds"].items()])
+        reply = f"🤖 Dự báo AQI: {preds}"
+    elif intent == "chart":
+        reply = "📊 Biểu đồ hiển thị bên phải nhé!"
+    elif intent == "warning":
+        aqi = df.iloc[-1]["aqi"]
+        if aqi > 150:
+            reply = "⚠️ Không khí ô nhiễm, nên ở trong nhà."
+        elif aqi > 100:
+            reply = "😷 Không khí trung bình, nhớ đeo khẩu trang khi ra ngoài."
         else:
-            st.session_state.chat.append({"role": "bot", "text": "🤔 Mình chưa hiểu rõ ý bạn. Hãy thử hỏi: 'Dự đoán AQI', 'Biểu đồ AQI' hoặc 'Cảnh báo'."})
-
-        st.session_state.input_text = ""
-
-    st.text_input("Nhập tin nhắn...", key="input_text", on_change=handle_message)
-
-# --- BIỂU ĐỒ & CẢNH BÁO ---
-with right:
-    st.subheader("📊 Dự đoán & Cảnh báo")
-    latest = df.iloc[-1]
-    st.write(f"⏰ {latest['timestamp']} — AQI hiện tại: {latest['aqi']:.0f}")
-
-    if "last_prediction" in st.session_state:
-        out = st.session_state["last_prediction"]
-        for h, aqi in out["preds"].items():
-            st.markdown(health_card_html(aqi), unsafe_allow_html=True)
-
-        chart_df = out["chart_df"]
-        chart = (
-            alt.Chart(chart_df)
-            .mark_line(point=True)
-            .encode(x="timestamp:T", y="aqi:Q", color="type:N")
-            .properties(height=300)
-        )
-        st.altair_chart(chart, use_container_width=True)
+            reply = "✅ Không khí trong lành, bạn có thể ra ngoài thoải mái."
+        if disease:
+            reply += f" Do bạn có bệnh '{disease}', hãy chú ý khi AQI >100."
+    elif intent == "weather":
+        latest = df.iloc[-1]
+        reply = f"🌡️ Nhiệt độ: {latest['temp']}°C, 💧 Độ ẩm: {latest['humidity']}%."
+    elif intent == "greet":
+        reply = "Chào bạn 👋, tôi là AirCare Bot — sẵn sàng giúp bạn theo dõi không khí!"
     else:
-        st.info("Nhấn **🚀 Dự đoán nhanh** hoặc hỏi chatbot để xem dự báo.")
+        reply = "🤔 Mình chưa hiểu rõ ý bạn. Hãy thử hỏi: 'Dự đoán AQI' hoặc 'Thời tiết'."
+
+    st.session_state.chat.append({"role": "bot", "text": reply})
+    st.session_state.input_text = ""
+
+# Chat UI
+st.text_input("Nhập tin nhắn...", key="input_text", on_change=handle_message)
+for msg in st.session_state["chat"]:
+    align = "right" if msg["role"] == "user" else "left"
+    bg = "#dbeafe" if msg["role"] == "user" else "#f1f5f9"
+    st.markdown(f"<div style='text-align:{align}; background:{bg}; padding:8px; border-radius:8px; margin-bottom:6px;'>{msg['text']}</div>", unsafe_allow_html=True)
+
+# ==============================
+# BIỂU ĐỒ & CẢNH BÁO
+# ==============================
+st.markdown("---")
+st.subheader("📊 Dự đoán & Phân tích")
+latest = df.iloc[-1]
+st.write(f"⏰ {latest['timestamp']} — AQI hiện tại: {latest['aqi']:.0f}")
+
+if "last_prediction" in st.session_state:
+    out = st.session_state["last_prediction"]
+    for h, aqi in out["preds"].items():
+        st.markdown(health_card_html(aqi), unsafe_allow_html=True)
+
+    chart_df = out["chart_df"]
+    chart = (
+        alt.Chart(chart_df)
+        .mark_line(point=True)
+        .encode(
+            x="timestamp:T",
+            y=alt.Y("aqi:Q", title="Chỉ số AQI"),
+            color=alt.Color("type:N", title="Loại dữ liệu"),
+        )
+        .properties(height=350)
+        .interactive()
+    )
+    st.altair_chart(chart, use_container_width=True)
+else:
+    st.info("💡 Nhấn **🚀 Dự đoán nhanh** hoặc hỏi chatbot để xem dự báo.")

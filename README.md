@@ -6,7 +6,7 @@ Thành viên trong nhóm 8
 - Nguyễn Minh Sang
 - Nguyễn Đức Trường
 
----------------
+-----------------
 
 1. Tóm tắt dự án
 AIRCARE là một hệ thống dự báo và cảnh báo chất lượng không khí (AQI) theo thời gian thực.  

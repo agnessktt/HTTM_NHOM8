@@ -84,3 +84,5 @@ if __name__ == "__main__":
             print(f"❌ Lỗi: {e}")
         time.sleep(INTERVAL)
 # Updated for Git sync (no content change)
+# ✅ Commit for Git sync only – no functional changes
+

@@ -54,7 +54,22 @@ AIRCARE/
 
 ❤️ Khuyến nghị sức khỏe cá nhân hóa dựa trên tuổi và bệnh lý.
 
+4. Cách sử dụng 
+-Chạy ứng dụng: mở terminal → gõ
 
-4. 🔗 Liên kết GitHub dự án
+        streamlit run app.py
+
+
+để khởi động giao diện web.
+
+-Nhập thông tin cá nhân: tuổi, tình trạng sức khỏe, vị trí cần dự đoán.
+
+-Ứng dụng tự động lấy dữ liệu thời tiết & AQI hiện tại từ OpenWeather.
+
+-Xem kết quả dự đoán AQI cho 1h, 3h, 6h tới (hiển thị bằng biểu đồ và màu cảnh báo).
+
+Chat với chatbot để nhận lời khuyên sức khỏe tương ứng với chất lượng không khí.
+
+5. 🔗 Liên kết GitHub dự án
 
 👉 Dự án đầy đủ: https://github.com/agnessktt/HTTM_NHOM8

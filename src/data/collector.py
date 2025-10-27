@@ -1,26 +1,26 @@
 import os
-import requests
-import pandas as pd
-from dotenv import load_dotenv
-from datetime import datetime
 import time
 import logging
+import requests
+import pandas as pd
+from datetime import datetime
+from dotenv import load_dotenv
 
-# ---------------------------
-# ⚙️ Cấu hình
-# ---------------------------
+# =======================================
+# ⚙️ CẤU HÌNH CƠ BẢN
+# =======================================
 load_dotenv()
 
 API_KEY = os.getenv("OPENWEATHER_API_KEY")
 CITY = os.getenv("DEFAULT_CITY", "Hanoi")
 RAW_PATH = "data/raw/air_data.csv"
 LOG_PATH = "data/logs/collector.log"
-INTERVAL = int(os.getenv("FETCH_INTERVAL", 120))  # thời gian lấy dữ liệu
-MAX_RUNS = int(os.getenv("MAX_RUNS", 0))  # 0 = chạy mãi, >0 = số lần lấy dữ liệu rồi dừng
+INTERVAL = int(os.getenv("FETCH_INTERVAL", 120))   # thời gian chờ giữa 2 lần lấy (giây)
+MAX_RUNS = int(os.getenv("MAX_RUNS", 0))           # 0 = chạy mãi, >0 = số lần lấy rồi dừng
 
-# ---------------------------
-# 🧾 Cấu hình logging
-# ---------------------------
+# =======================================
+# 🧾 CẤU HÌNH GHI LOG
+# =======================================
 os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
 logging.basicConfig(
     filename=LOG_PATH,
@@ -28,23 +28,23 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-# ---------------------------
-# 🔹 Hàm lấy dữ liệu không khí & thời tiết
-# ---------------------------
+# =======================================
+# 🌤️ HÀM LẤY DỮ LIỆU KHÔNG KHÍ & THỜI TIẾT
+# =======================================
 def fetch_air_quality(city=CITY):
     print("----------------------------------------------------")
-    print(f"📡 [{datetime.now().strftime('%H:%M:%S')}] Lấy dữ liệu cho: {city}")
+    print(f"📡 [{datetime.now().strftime('%H:%M:%S')}] Đang lấy dữ liệu cho: {city}")
 
     try:
-        # Lấy tọa độ
+        # ---- Lấy tọa độ ----
         geo_url = f"http://api.openweathermap.org/geo/1.0/direct?q={city}&limit=1&appid={API_KEY}"
         geo_resp = requests.get(geo_url, timeout=10).json()
         if not geo_resp:
-            raise ValueError(f"Không tìm thấy thành phố '{city}'.")
+            raise ValueError(f"Không tìm thấy thành phố '{city}'")
 
         lat, lon = geo_resp[0]["lat"], geo_resp[0]["lon"]
 
-        # Lấy dữ liệu không khí và thời tiết
+        # ---- Lấy dữ liệu không khí và thời tiết ----
         air_url = f"http://api.openweathermap.org/data/2.5/air_pollution?lat={lat}&lon={lon}&appid={API_KEY}"
         weather_url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={API_KEY}&units=metric"
 
@@ -56,6 +56,7 @@ def fetch_air_quality(city=CITY):
         temp = weather_data["main"]["temp"]
         humidity = weather_data["main"]["humidity"]
 
+        # ---- Chuẩn hóa dữ liệu ----
         data = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "city": city,
@@ -67,23 +68,24 @@ def fetch_air_quality(city=CITY):
             "so2": components.get("so2"),
             "temp": temp,
             "humidity": humidity,
-            "aqi": aqi * 50
+            "aqi": aqi * 50  # quy đổi mức AQI
         }
 
-        # Lưu vào CSV (chống trùng timestamp)
+        # ---- Lưu vào CSV ----
         os.makedirs(os.path.dirname(RAW_PATH), exist_ok=True)
         if os.path.exists(RAW_PATH):
             old_df = pd.read_csv(RAW_PATH)
             if data["timestamp"] in old_df["timestamp"].values:
-                print("⚠️  Dữ liệu trùng thời gian, bỏ qua lần ghi này.")
+                print("⚠️  Dữ liệu trùng thời gian, bỏ qua.")
                 return data
             df = pd.concat([old_df, pd.DataFrame([data])], ignore_index=True)
         else:
             df = pd.DataFrame([data])
+
         df.to_csv(RAW_PATH, index=False)
 
-        print(f"✅ Đã lưu vào {RAW_PATH} lúc {data['timestamp']}")
-        print(f"🌡️  {temp}°C | 💧 {humidity}% | AQI: {data['aqi']}")
+        print(f"✅ Đã lưu dữ liệu mới vào {RAW_PATH}")
+        print(f"🌡️  Nhiệt độ: {temp}°C | 💧 Độ ẩm: {humidity}% | AQI: {data['aqi']}")
         logging.info(f"Saved new data for {city}: AQI={data['aqi']}, Temp={temp}, Humidity={humidity}")
         print("----------------------------------------------------\n")
         return data
@@ -94,20 +96,19 @@ def fetch_air_quality(city=CITY):
         print("----------------------------------------------------\n")
         return None
 
-
-# ---------------------------
-# 🔁 Vòng lặp tự động thu thập
-# ---------------------------
+# =======================================
+# 🔁 CHƯƠNG TRÌNH CHẠY LIÊN TỤC
+# =======================================
 if __name__ == "__main__":
-    print("🚀 Bắt đầu thu thập dữ liệu không khí liên tục...")
+    print("🚀 BẮT ĐẦU THU THẬP DỮ LIỆU KHÔNG KHÍ")
     print(f"🌆 Thành phố: {CITY}")
-    print(f"⏳ Mỗi {INTERVAL} giây sẽ lấy và lưu dữ liệu mới.\n")
+    print(f"⏳ Cứ mỗi {INTERVAL} giây sẽ lấy dữ liệu một lần.\n")
 
     count = 0
     while True:
         fetch_air_quality()
         count += 1
         if MAX_RUNS > 0 and count >= MAX_RUNS:
-            print(f"✅ Đã chạy đủ {MAX_RUNS} lần, dừng chương trình.")
+            print(f"✅ Đã chạy đủ {MAX_RUNS} lần. Dừng chương trình.")
             break
         time.sleep(INTERVAL)

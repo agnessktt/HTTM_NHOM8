@@ -18,7 +18,8 @@ INTERVAL = 120  # Lấy dữ liệu mỗi 2 phút (120 giây)
 # 🔹 Hàm lấy dữ liệu chất lượng không khí và thời tiết
 # ---------------------------
 def fetch_air_quality(city=CITY):
-    print(f"📡 Đang lấy dữ liệu không khí cho: {city}...")
+    print("----------------------------------------------------")
+    print(f"📡 [{datetime.now().strftime('%H:%M:%S')}] Đang lấy dữ liệu cho: {city}")
 
     # Lấy tọa độ
     geo_url = f"http://api.openweathermap.org/geo/1.0/direct?q={city}&limit=1&appid={API_KEY}"
@@ -64,7 +65,9 @@ def fetch_air_quality(city=CITY):
     else:
         df.to_csv(RAW_PATH, mode="a", header=False, index=False)
 
-    print(f"✅ Đã lưu dữ liệu vào {RAW_PATH} lúc {data['timestamp']}")
+    print(f"✅ Dữ liệu đã lưu vào {RAW_PATH} lúc {data['timestamp']}")
+    print(f"🌡️  Nhiệt độ: {temp}°C | 💧 Độ ẩm: {humidity}% | AQI: {data['aqi']}")
+    print("----------------------------------------------------\n")
     return data
 
 # ---------------------------
@@ -72,9 +75,12 @@ def fetch_air_quality(city=CITY):
 # ---------------------------
 if __name__ == "__main__":
     print("🚀 Bắt đầu thu thập dữ liệu không khí liên tục...")
+    print("⏳ Mỗi 2 phút sẽ lấy và lưu dữ liệu mới.\n")
+
     while True:
         try:
             fetch_air_quality()
         except Exception as e:
             print(f"❌ Lỗi: {e}")
         time.sleep(INTERVAL)
+# Updated for Git sync (no content change)

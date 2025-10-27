@@ -1,6 +1,7 @@
+
+
 # Virtual environments
-.venv/
-venv/
+.venv312/
 env/
 
 # Bytecode & temp

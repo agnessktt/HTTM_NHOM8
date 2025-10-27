@@ -17,31 +17,30 @@ Dự án bao gồm:
 
 2. 🗂️ Cấu trúc thư mục dự án
 AIRCARE/
-│
-├── data/                         ← Thư mục dữ liệu
-│   ├── raw/                      ←   Dữ liệu gốc (chưa xử lý)
-│   │   └── air_data.csv          ←   File dữ liệu AQI gốc (các thông số môi trường)
-│   └── collector.log             ←   File log khi thu thập dữ liệu
-│
-├── models/
-│   ├── aqi_model_1h.pkl
-│   ├── aqi_model_3h.pkl
-│   ├── aqi_model_6h.pkl
-│   ├── feature_names_1h.pkl
-│   ├── feature_names_3h.pkl
-│   └── feature_names_6h.pkl        ← Các mô hình LightGBM đã huấn luyện
-│
-├── src/
-│   ├── collector.py                ← Thu thập dữ liệu AQI và thời tiết từ OpenWeather API
-│   ├── train_model.py              ← Huấn luyện mô hình LightGBM cho 1h/3h/6h dự báo
-│   └── run/
-│       └── app.py                  ← Ứng dụng Streamlit Chatbot chính
-│
-├── .venv312/                       ← Môi trường ảo (virtual environment)
-│
-├── README.md                       ← Hướng dẫn cài đặt và chạy dự án
-└── requirements.txt                ← Danh sách thư viện cần thiết
-
+|
+|--data/                                <- Thư mục dữ liệu
+|  |--raw/                              <- Dữ liệu gốc (chưa xử lý)
+|  |    |--air_data.csv                 <- File dữ liệu AQI gốc (các thông số môi trường)
+|  |--collector.log                     <- File log khi thu thập dữ liệu
+|
+|--models/
+|  |--aqi_model_1h.pkl
+|  |--aqi_model_3h.pkl
+|  |--aqi_model_6h.pkl
+|  |--feature_names_1h.pkl
+|  |--feature_names_3h.pkl
+|  |--feature_names_6h.pkl              <- Các mô hình LightGBM đã huấn luyện
+|
+|--src/
+|  |--collector.py                      <- Thu thập dữ liệu AQI và thời tiết từ OpenWeather API
+|  |--train_model.py                    <- Huấn luyện mô hình LightGBM cho 1h/3h/6h dự báo
+|  |--run/
+|     |--app.py                         <- Ứng dụng Streamlit Chatbot chính
+|
+|--.venv312/                            <- Môi trường ảo (virtual environment)
+|
+|--README.md                            <- Hướng dẫn cài đặt và chạy dự án
+|--requirements.txt                     <- Danh sách thư viện cần thiết
 
 3. 🧩 Các tính năng nổi bật
 

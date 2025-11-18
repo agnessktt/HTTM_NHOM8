@@ -4,52 +4,80 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 import altair as alt
-from datetime import timedelta
+from datetime import timedelta, datetime
 from sentence_transformers import SentenceTransformer, util
-import subprocess
-import time
 
 # =============================
-# CONFIG PATHS (TỰ ĐỘNG TÌM THƯ MỤC GỐC)
+# ⚙️ CẤU HÌNH ĐƯỜNG DẪN 
 # =============================
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))  # gốc dự án
-DATA_PATH = "data/raw/air_data.csv"
-MODEL_DIR = "models"
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+DATA_PATH = os.path.join(BASE_DIR, "data/raw/air_data.csv")
+MODEL_DIR = os.path.join(BASE_DIR, "models")
+
 MODEL_FILES = {
-    1: f"{MODEL_DIR}/aqi_model_1h.pkl",
-    3: f"{MODEL_DIR}/aqi_model_3h.pkl",
-    6: f"{MODEL_DIR}/aqi_model_6h.pkl",
+    1: os.path.join(MODEL_DIR, "pm2_5_model_1h.pkl"), 
+    3: os.path.join(MODEL_DIR, "pm2_5_model_3h.pkl"), 
+    6: os.path.join(MODEL_DIR, "pm2_5_model_6h.pkl"), 
 }
 FEATURE_FILES = {
-    1: f"{MODEL_DIR}/feature_names_1h.pkl",
-    3: f"{MODEL_DIR}/feature_names_3h.pkl",
-    6: f"{MODEL_DIR}/feature_names_6h.pkl",
+    1: os.path.join(MODEL_DIR, "pm2_5_features_1h.pkl"), 
+    3: os.path.join(MODEL_DIR, "pm2_5_features_3h.pkl"), 
+    6: os.path.join(MODEL_DIR, "pm2_5_features_6h.pkl"), 
 }
 
 # =============================
-# HELPER FUNCTIONS
+# 🔹 HÀM QUY ĐỔI PM2.5 → AQI
 # =============================
-def health_card_html(aqi):
-    """Trả về HTML cảnh báo màu tương ứng mức AQI"""
-    if aqi <= 50:
-        level, color, msg = "Tốt", "#C8E6C9", "Không khí trong lành — rất tốt cho sức khỏe."
-    elif aqi <= 100:
-        level, color, msg = "Trung bình", "#FFF9C4", "Chất lượng tạm ổn; người nhạy cảm chú ý."
-    elif aqi <= 150:
-        level, color, msg = "Kém", "#FFE0B2", "Không tốt cho người nhạy cảm; nên hạn chế ra ngoài."
-    elif aqi <= 200:
-        level, color, msg = "Xấu", "#FFCDD2", "Ô nhiễm; tránh ra ngoài và hoạt động mạnh."
-    elif aqi <= 300:
-        level, color, msg = "Rất xấu", "#E1BEE7", "Rất ô nhiễm; hạn chế tối đa ra ngoài."
-    else:
-        level, color, msg = "Nguy hại", "#B39DDB", "Nguy hiểm — không ra ngoài nếu không cần thiết."
+def pm25_to_aqi(pm25):
+    """Quy đổi giá trị PM2.5 sang chỉ số AQI (chuẩn US EPA)"""
+    breakpoints = [
+        (0.0, 12.0, 0, 50, "Tốt", "Không khí trong lành — rất tốt cho sức khỏe."),
+        (12.1, 35.4, 51, 100, "Trung bình", "Người nhạy cảm có thể bị ảnh hưởng nhẹ."),
+        (35.5, 55.4, 101, 150, "Kém", "Người già, trẻ nhỏ, người bệnh nên hạn chế ra ngoài."),
+        (55.5, 150.4, 151, 200, "Xấu", "Ô nhiễm; tránh ra ngoài và hoạt động mạnh."),
+        (150.5, 250.4, 201, 300, "Rất xấu", "Rất ô nhiễm; ở trong nhà nếu có thể."),
+        (250.5, 500.0, 301, 500, "Nguy hại", "Không ra ngoài, nguy hiểm đến sức khỏe."),
+    ]
+    # Xử lý trường hợp PM2.5 rất cao
+    if pm25 > 500.0:
+        return 500, "Nguy hại", "Không ra ngoài, nguy hiểm đến sức khỏe."
+        
+    for low, high, aqi_low, aqi_high, cat, msg in breakpoints:
+        if low <= pm25 <= high:
+            aqi = ((aqi_high - aqi_low) / (high - low)) * (pm25 - low) + aqi_low
+            return round(aqi, 1), cat, msg
+    
+    # Trường hợp dự phòng nếu pm25 là âm hoặc NaN
+    if pd.isna(pm25) or pm25 < 0:
+        return 0, "Không xác định", "Không có dữ liệu PM2.5"
+        
+    return 500, "Nguy hại", "Giá trị vượt ngưỡng cho phép." # Mặc định cho giá trị > 500
+
+# =============================
+# 🩺 HIỂN THỊ THẺ CẢNH BÁO
+# =============================
+def health_card_html(pm25):
+    aqi, level, msg = pm25_to_aqi(pm25)
+    color_map = {
+        "Tốt": "#C8E6C9",
+        "Trung bình": "#FFF9C4",
+        "Kém": "#FFE0B2",
+        "Xấu": "#FFCDD2",
+        "Rất xấu": "#E1BEE7",
+        "Nguy hại": "#B39DDB",
+        "Không xác định": "#f1f5f9"
+    }
+    color = color_map.get(level, "#f1f5f9")
     return f"""
     <div style="background:{color}; padding:14px; border-radius:10px; margin-bottom:6px;">
-      <h4 style="margin:4px 0;">AQI: <b>{aqi:.0f}</b> — {level}</h4>
+      <h4 style="margin:4px 0;">AQI: <b>{aqi}</b> — {level}</h4>
       <p style="font-size:13px;margin:0;">{msg}</p>
     </div>
     """
 
+# =============================
+# 📈 HÀM XỬ LÝ DỮ LIỆU VÀ DỰ ĐOÁN 
+# =============================
 def build_input_df_from_latest(latest_row, feature_list):
     base = {k: float(latest_row.get(k, 0)) for k in ["pm2_5","pm10","no2","co","o3","so2","temp","humidity"]}
     ts = pd.to_datetime(latest_row["timestamp"])
@@ -68,51 +96,74 @@ def build_input_df_from_latest(latest_row, feature_list):
 
 def predict_multi_horizon(df_all, models, feature_names):
     latest = df_all.iloc[-1]
-    preds, chart_rows = {}, []
-    recent = df_all.tail(24)[["timestamp", "aqi"]].copy()
+    preds = {} # Sẽ lưu PM2.5 thô
+    chart_rows = []
+    
+    # Lấy PM2.5 lịch sử và QUY ĐỔI sang AQI
+    recent = df_all.tail(24)[["timestamp", "pm2_5"]].copy()
+    recent["value"] = recent["pm2_5"].apply(lambda x: pm25_to_aqi(x)[0]) # Quy đổi
     recent["type"] = "actual"
-    chart_rows.extend(recent.to_dict(orient="records"))
+    chart_rows.extend(recent[["timestamp", "value", "type"]].to_dict(orient="records"))
 
     for h, model in models.items():
         feats = feature_names[h]
         df_input = build_input_df_from_latest(latest, feats)
-        for col in feats:
-            if col.startswith("aqi_lag"):
-                try:
-                    lag_n = int(col.split("aqi_lag")[-1])
-                    df_input[col] = float(df_all["aqi"].shift(lag_n).iloc[-1])
-                except Exception:
-                    df_input[col] = 0.0
+        
+        # logic lấy lag cho khớp với train_model.py
+        for col in ["pm2_5", "pm10", "co", "no2", "o3", "so2", "temp", "humidity"]:
+             for lag in range(1, 7): 
+                feature_name = f"{col}_lag{lag}"
+                if feature_name in feats:
+                    try:
+                        df_input[feature_name] = float(df_all[col].shift(lag).iloc[-1])
+                    except Exception:
+                        df_input[feature_name] = 0.0
+        
+        if "pm2_5_roll3" in feats: # Thêm logic rolling
+            try:
+                df_input["pm2_5_roll3"] = float(df_all["pm2_5"].rolling(window=3).mean().iloc[-1])
+            except Exception:
+                df_input["pm2_5_roll3"] = 0.0
 
-        pred = max(0.0, model.predict(df_input)[0])
-        preds[h] = pred
+        pm25_pred = max(0.0, model.predict(df_input[feats])[0])
+        preds[h] = pm25_pred # Lưu PM2.5 thô
+        
+        # Quy đổi PM2.5 dự đoán sang AQI để vẽ
+        aqi_pred, _, _ = pm25_to_aqi(pm25_pred)
+        
         chart_rows.append({
             "timestamp": pd.to_datetime(latest["timestamp"]) + timedelta(hours=h),
-            "aqi": pred,
+            "value": aqi_pred, 
             "type": f"pred_{h}h"
         })
 
     chart_df = pd.DataFrame(chart_rows).sort_values("timestamp")
-    return {"preds": preds, "chart_df": chart_df}
+    return {"preds": preds, "chart_df": chart_df} # preds là PM2.5, chart_df là AQI
 
 # =============================
-# LOAD MODELS & DATA
+# 📦 NẠP MÔ HÌNH VÀ DỮ LIỆU
 # =============================
 models, feature_names = {}, {}
 for h in [1, 3, 6]:
     if not (os.path.exists(MODEL_FILES[h]) and os.path.exists(FEATURE_FILES[h])):
-        st.error(f"❌ Thiếu mô hình {h}h — hãy chạy train_model.py trước.")
+        st.error(f"❌ Thiếu mô hình {h}h ({MODEL_FILES[h]}) — hãy chạy train_model.py trước.")
         st.stop()
-    models[h], feature_names[h] = joblib.load(MODEL_FILES[h]), joblib.load(FEATURE_FILES[h])
+    models[h] = joblib.load(MODEL_FILES[h])
+    feature_names[h] = joblib.load(FEATURE_FILES[h])
 
 if not os.path.exists(DATA_PATH):
-    st.error("❌ Không tìm thấy file dữ liệu!")
+    st.error(f"❌ Không tìm thấy file dữ liệu data/raw/air_data.csv!")
     st.stop()
 
-df = pd.read_csv(DATA_PATH, parse_dates=["timestamp"]).drop_duplicates("timestamp").sort_values("timestamp")
-if df.empty:
-    st.warning("⚠️ Dữ liệu rỗng. Hãy kiểm tra lại.")
+try:
+    df = pd.read_csv(DATA_PATH, parse_dates=["timestamp"]).drop_duplicates("timestamp").sort_values("timestamp")
+    if df.empty or "pm2_5" not in df.columns or df["pm2_5"].isna().all():
+        st.warning("⚠️ Dữ liệu rỗng hoặc thiếu PM2.5. Hãy chạy collector.py.")
+        st.stop()
+except Exception as e:
+    st.error(f"Lỗi khi đọc file CSV: {e}")
     st.stop()
+
 
 # =============================
 # SEMANTIC MODEL (HIỂU NGỮ NGHĨA)
@@ -141,15 +192,15 @@ def detect_intent(user_text):
     return best_intent if best_score > 0.55 else "unknown"
 
 # =============================
-# UI SETUP
+# UI SETUP 
 # =============================
-st.set_page_config(page_title="AIRCARE Chatbot AQI", page_icon="🌤️", layout="wide")
+st.set_page_config(page_title="AIRCARE - Dự đoán AQI (từ PM2.5)", page_icon="🌤️", layout="wide")
 st.markdown("<style> .stApp { background-color: #f8fafc; } </style>", unsafe_allow_html=True)
 
 col1, col2 = st.columns([7, 3])
 with col1:
-    st.title("🌤️ AIRCARE — Chatbot Dự đoán AQI")
-    st.caption("Hỏi về chất lượng không khí hoặc dự đoán AQI trong 1h, 3h, 6h tới.")
+    st.title("🌤️ AIRCARE — Dự đoán AQI (từ PM2.5)")
+    st.subheader("Hỏi về chất lượng không khí hoặc dự đoán AQI (từ PM2.5) trong 1h, 3h, 6h tới.")
 with col2:
     st.image("https://img.icons8.com/fluency/96/air-quality.png", width=90)
 st.markdown("---")
@@ -197,23 +248,27 @@ with left:
         if intent == "predict":
             out = predict_multi_horizon(df, models, feature_names)
             st.session_state["last_prediction"] = out
-            preds_text = ", ".join([f"+{h}h: {v:.0f}" for h, v in out["preds"].items()])
-            st.session_state.chat.append({"role": "bot", "text": f"🤖 Dự báo AQI: {preds_text}"})
+            
+            # Phải quy đổi PM2.5 (v) sang AQI trước khi hiển thị
+            preds_text = ", ".join(
+                [f"+{h}h: {pm25_to_aqi(v)[0]} AQI ({pm25_to_aqi(v)[1]})" for h, v in out["preds"].items()]
+            )
+            st.session_state.chat.append({"role": "bot", "text": f"🤖 Dự báo chất lượng không khí: {preds_text}"})
 
         elif intent == "chart":
             st.session_state.chat.append({"role": "bot", "text": "📊 Biểu đồ AQI hiển thị bên phải nhé!"})
 
         elif intent == "warning":
-            latest = df.iloc[-1]["aqi"]
-            if latest > 150:
-                msg = "⚠️ Không khí ô nhiễm, hạn chế ra ngoài. "
-            elif latest > 100:
-                msg = "😷 Không khí trung bình, người nhạy cảm nên đeo khẩu trang. "
-            else:
-                msg = "✅ Không khí trong lành, bạn có thể ra ngoài thoải mái. "
+            # Phải đọc PM2.5 hiện tại và quy đổi
+            latest_pm = df.iloc[-1]["pm2_5"]
+            aqi, cat, msg = pm25_to_aqi(latest_pm) # Dùng hàm quy đổi
+            advice = msg # Lấy thông điệp sức khỏe từ hàm
+            
             if disease:
-                msg += f"Vì bạn có bệnh '{disease}', nên chú ý hơn khi AQI >100."
-            st.session_state.chat.append({"role": "bot", "text": msg})
+                advice += f" Vì bạn có bệnh '{disease}', nên đặc biệt chú ý khi AQI > 100."
+            
+            # Trả về thông tin đã quy đổi
+            st.session_state.chat.append({"role": "bot", "text": f"AQI hiện tại {aqi:.0f} — {cat}. {advice}"})
 
         elif intent == "greet":
             st.session_state.chat.append({"role": "bot", "text": "Chào👋! Tôi là AirCare Chatbot, sẵn sàng giúp bạn theo dõi chất lượng không khí 🌤️."})
@@ -224,24 +279,34 @@ with left:
         st.session_state.input_text = ""
 
     st.text_input("Nhập tin nhắn...", key="input_text", on_change=handle_message)
-
+    
 # --- BIỂU ĐỒ & CẢNH BÁO ---
 with right:
-    st.subheader("📊 Dự đoán & Cảnh báo")
+    st.subheader("📊 Dự báo & Cảnh báo")
     latest = df.iloc[-1]
-    st.write(f"⏰ {latest['timestamp']} — AQI hiện tại: {latest['aqi']:.0f}")
+    aqi_now, level, msg = pm25_to_aqi(latest["pm2_5"])
+    st.write(f"⏰ {latest['timestamp']} — AQI hiện tại: {aqi_now:.0f} ({level})")
+    st.info(msg) # Hiển thị thông báo sức khỏe hiện tại
 
     if "last_prediction" in st.session_state:
         out = st.session_state["last_prediction"]
-        for h, aqi in out["preds"].items():
-            st.markdown(health_card_html(aqi), unsafe_allow_html=True)
+        # Thẻ cảnh báo (Health card)
+        for h, pm25_val in out["preds"].items():
+            st.markdown(health_card_html(pm25_val), unsafe_allow_html=True)
 
+        # Biểu đồ này hiện đã vẽ AQI 
         chart_df = out["chart_df"]
         chart = (
             alt.Chart(chart_df)
             .mark_line(point=True)
-            .encode(x="timestamp:T", y="aqi:Q", color="type:N")
+            .encode(
+                x=alt.X("timestamp:T", title="Thời gian"), 
+                y=alt.Y("value:Q", title="Chỉ số AQI"), 
+                color=alt.Color("type:N", title="Loại"),
+                tooltip=["timestamp:T", "value:Q", "type:N"] 
+            )
             .properties(height=300)
+            .interactive()
         )
         st.altair_chart(chart, use_container_width=True)
     else:

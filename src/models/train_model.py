@@ -69,7 +69,7 @@ def create_features(df, shift_rows):
     return X, y, feature_cols
 
 # ============================================================
-# 🧠 HUẤN LUYỆN VÀ LƯU MÔ HÌNH
+# 🧠 HUẤN LUYỆN VÀ LƯU MÔ HÌNH 
 # ============================================================
 def train_for_horizon(horizon_in_hours): 
     shift_rows = horizon_in_hours * ROWS_PER_HOUR  

@@ -9,15 +9,15 @@ Thành viên trong nhóm 8
 ---------------
 
 1. Tóm tắt dự án
-AIRCARE là một hệ thống dự báo và cảnh báo chất lượng không khí (AQI) theo thời gian thực.  
+AIRCARE là một hệ thống dự báo và cảnh báo chất lượng không khí (AQI) theo thời gian thực, được xây dựng như một ML Application (Ứng dụng Học máy).
 
 Dự án bao gồm:
 
-- Bộ thu thập dữ liệu tự động từ OpenWeather API (mỗi 2 phút).
+Bộ thu thập dữ liệu tự động từ OpenWeather API (mỗi 2 phút), thu thập các chỉ số môi trường như PM2.5, nhiệt độ, độ ẩm....
 
-- Mô hình LightGBM dự đoán AQI trong 1h, 3h và 6h tiếp theo.
+Mô hình LightGBM được huấn luyện để dự đoán nồng độ PM2.5 (µg/m³) trong 1h, 3h và 6h tiếp theo.
 
-- Ứng dụng Streamlit Chatbot giúp người dùng hỏi đáp và theo dõi chất lượng không khí trực quan.
+Ứng dụng Streamlit Chatbot sử dụng AI Ngữ nghĩa (SentenceTransformer) để hiểu ý định người dùng, sau đó quy đổi kết quả dự đoán PM2.5 sang chỉ số AQI trực quan để cảnh báo.
 
 2. 🗂️ Cấu trúc thư mục dự án
 AIRCARE/
@@ -27,13 +27,13 @@ AIRCARE/
 │   │   └── air_data.csv          ←   File dữ liệu AQI gốc (các thông số môi trường)
 │   └── collector.log             ←   File log khi thu thập dữ liệu
 │
-├── models/
-│   ├── aqi_model_1h.pkl
-│   ├── aqi_model_3h.pkl
-│   ├── aqi_model_6h.pkl
-│   ├── feature_names_1h.pkl
-│   ├── feature_names_3h.pkl
-│   └── feature_names_6h.pkl        ← Các mô hình LightGBM đã huấn luyện
+├── models/                       
+│   ├── pm2_5_model_1h.pkl           
+│   ├── pm2_5_model_3h.pkl   	
+│   ├── pm2_5_model_6h.pkl         
+│   ├── pm2_5_features_1h.pkl      
+│   ├── pm2_5_features_3h.pkl 	
+│   └── pm2_5_features_6h.pkl 	← Các mô hình LightGBM đã huấn luyện
 │
 ├── src/
 │   ├── collector.py                ← Thu thập dữ liệu AQI và thời tiết từ OpenWeather API
@@ -49,20 +49,19 @@ AIRCARE/
 
 3. 🧩 Các tính năng nổi bật
 
-🕒 Cập nhật dữ liệu tự động từ API (mỗi 2 phút).
+🕒 Cập nhật dữ liệu tự động từ API (mỗi 2 phút). 
 
-💬 Chatbot thông minh hiểu ngôn ngữ tự nhiên tiếng Việt.
+💬 Chatbot thông minh hiểu ngôn ngữ tự nhiên tiếng Việt (sử dụng SentenceTransformer).
 
-📈 Biểu đồ trực quan về AQI hiện tại và dự báo.
+📈 Biểu đồ trực quan về AQI (đã quy đổi) hiện tại và dự báo 1h, 3h, 6h tới. 
 
-🧠 Dự báo đa thời điểm: +1h, +3h, +6h.
+🧠 Dự báo đa thời điểm (1h, 3h, 6h) bằng mô hình LightGBM đã huấn luyện. 
 
-❤️ Khuyến nghị sức khỏe cá nhân hóa dựa trên tuổi và bệnh lý.
+❤️ Khuyến nghị sức khỏe cá nhân hóa dựa trên tuổi và bệnh lý người dùng nhập vào.
 
 4. Cách sử dụng 
 
 -Chạy ứng dụng: mở terminal → gõ
-
 .\.venv312\Scripts\Activate.ps1    #bật môi trường ảo
 
 python src/data/collector.py       #thu thập dữ liệu
@@ -71,14 +70,13 @@ python src/models/train_model.py   #huấn luyện mô hình
 
 streamlit run src/run/app.py       #chạy giao diện
 
--Nhập thông tin cá nhân: tuổi, tình trạng sức khỏe, vị trí cần dự đoán.
+Nhập thông tin cá nhân: tuổi, tình trạng sức khỏe.
 
--Ứng dụng tự động lấy dữ liệu thời tiết & AQI hiện tại từ OpenWeather.
+Ứng dụng tự động lấy dữ liệu PM2.5 hiện tại (từ air_data.csv) và quy đổi sang AQI để hiển thị.
 
--Xem kết quả dự đoán AQI cho 1h, 3h, 6h tới (hiển thị bằng biểu đồ và màu cảnh báo).
+Xem kết quả dự đoán PM2.5 đã được quy đổi sang AQI cho 1h, 3h, 6h tới (hiển thị bằng biểu đồ và màu cảnh báo).
 
-Chat với chatbot để nhận lời khuyên sức khỏe tương ứng với chất lượng không khí.
-
+Chat với chatbot để nhận lời khuyên sức khỏe tương ứng (ví dụ: "cảnh báo", "nên ra ngoài không?").
 
 5. 🔗 Liên kết GitHub dự án
 
@@ -86,28 +84,10 @@ Chat với chatbot để nhận lời khuyên sức khỏe tương ứng với c
 
 *Note:
 
-1. Trong quá trình phát triển dự án AIRCARE, nhóm sử dụng môi trường ảo (virtual environment) để quản lý các thư viện và gói phụ 
-thuộc.
+(Virtual Environment): Thư mục .venv được tạo cục bộ để quản lý thư viện và không được đẩy lên GitHub.
 
-Thư mục .venv được tạo cục bộ nhằm:
+(API Key): Khóa API (OPENWEATHER_API_KEY) được lưu trong file .env (không công khai trên GitHub để bảo mật).
 
-+ Đảm bảo tính ổn định giữa các phiên bản thư viện.
+(Mô hình .pkl): Các file .pkl trong thư mục models/ là kết quả của quá trình huấn luyện mô hình dự đoán nồng độ PM2.5 (thay vì AQI) ở các mốc thời gian khác nhau (1h, 3h, 6h).
 
-+ Tránh xung đột giữa các dự án Python khác trên máy.
-
-+ Do đó, thư mục .venv không được đẩy (push) lên GitHub, vì nó chứa nhiều tệp dung lượng lớn và đường dẫn cục bộ riêng của mỗi máy.
-
-2. Mã API dữ liệu (Data API)
-
-- Dự án sử dụng API của OpenWeatherMap để thu thập dữ liệu không khí (Air Quality Index) và thời tiết thời gian thực.
-
-- Khóa API (OPENWEATHER_API_KEY) được lưu trong file .env (không công khai trên GitHub để bảo mật).
-
-3. Các file .pkl (mô hình đã huấn luyện) và file .log không đẩy lên GitHub
-
-Các file .pkl trong thư mục models/ là kết quả của quá trình huấn luyện mô hình dự đoán chất lượng không khí (AQI) ở các mốc thời 
-gian khác nhau (1h, 3h, 6h).
-
-- Bảo mật và tính toàn vẹn của mô hình
-
-- Tuân thủ quy trình quản lý mã nguồn
+(log): File collector.log là file log được tạo trong quá trình chạy ứng dụng để ghi lại các thông tin thu thập dữ liệu. File này không được đẩy lên GitHub và chỉ tồn tại cục bộ trên máy khi chạy app.   
